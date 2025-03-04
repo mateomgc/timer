@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Timer Widget with Ring (Arial, Adjusted Buttons)</title>
+  <style>
+    /* Use Arial font exclusively */
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+      transition: background 0.3s, color 0.3s;
+    }
+    /* Container for the timer and its ring */
+    .timer-container {
+      position: relative;
+      width: 150px;
+      height: 150px;
+      margin-bottom: 20px;
+    }
+    /* Canvas for drawing the ring (full size) */
+    #ringCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 150px;
+      height: 150px;
+      z-index: 1;
+    }
+    /* Timer display – centered in the container, font size 26px */
+    .timer {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 26px;
+      cursor: pointer;
+      user-select: none;
+      z-index: 2;
+    }
+    /* Input field for editing the time (same positioning as the timer) */
+    #timeEdit {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 26px;
+      text-align: center;
+      border: none;
+      outline: none;
+      background: transparent;
+      width: 150px;
+      display: none;
+      z-index: 2;
+    }
+    /* Button styling: adjusted for 11px font with fully rounded corners */
+    .controls button {
+      padding: 5px 10px;
+      font-size: 11px;
+      margin: 0 5px;
+      cursor: pointer;
+      border: none;
+      border-radius: 9999px;
+      transition: background 0.3s;
+    }
+    
+    /* Light mode styling */
+    @media (prefers-color-scheme: light) {
+      body {
+        background: #ffffff;
+        color: #202124;
+      }
+      .controls button {
+        background: #007aff;
+        color: #ffffff;
+      }
+      .controls button:hover {
+        background: #005bb5;
+      }
+    }
+    
+    /* Dark mode styling */
+    @media (prefers-color-scheme: dark) {
+      body {
+        background: #202124;
+        color: #e8eaed;
+      }
+      .controls button {
+        background: #5f6368;
+        color: #e8eaed;
+      }
+      .controls button:hover {
+        background: #80868b;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Timer container: holds the canvas ring and timer text/input -->
+  <div class="timer-container">
+    <canvas id="ringCanvas" width="150" height="150"></canvas>
+    <div class="timer" id="timer">00:00:00</div>
+    <input type="text" id="timeEdit" placeholder="HH:MM:SS">
+  </div>
+  
+  <div class="controls">
+    <!-- Single toggle button for Start/Pause -->
+    <button id="toggle">Start</button>
+    <!-- Reset button -->
+    <button id="reset">Reset</button>
+  </div>
+  
+  <!-- Local audio element for calm sound -->
+  <audio id="alarmSound" src="alarm.mp3" preload="auto"></audio>
+  
+  <script>
+    let timerInterval = null;
+    let initialTime = 0;   // in milliseconds (set via editing)
+    let currentTime = 0;   // current timer value in milliseconds
+    let startTime = 0;
+    let timerRunning = false;
+    
+    const timerDisplay = document.getElementById('timer');
+    const timeEdit = document.getElementById('timeEdit');
+    const toggleButton = document.getElementById('toggle');
+    const resetButton = document.getElementById('reset');
+    const alarmSound = document.getElementById('alarmSound');
+    const ringCanvas = document.getElementById('ringCanvas');
+    const ctx = ringCanvas.getContext('2d');
+    
+    // Draw the ring around the timer.
+    // In countdown mode, the ring arc is proportional to (currentTime / initialTime),
+    // starting at the top (12 o'clock). In stopwatch mode, the ring is complete.
+    function drawRing() {
+      const width = ringCanvas.width;
+      const height = ringCanvas.height;
+      const centerX = width / 2;
+      const centerY = height / 2;
+      const radius = Math.min(width, height) / 2 - 5; // adjusted for smaller canvas
+      
+      ctx.clearRect(0, 0, width, height);
+      
+      let fraction = 1;
+      if (initialTime > 0) { // countdown mode
+        fraction = currentTime / initialTime;
+        if (fraction < 0) fraction = 0;
+      }
+      
+      // Draw the arc only if there's any fraction left.
+      if (fraction > 0) {
+        ctx.beginPath();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'black';
+        const startAngle = -Math.PI / 2; // start at 12 o'clock
+        const endAngle = startAngle + fraction * 2 * Math.PI;
+        ctx.arc(centerX, centerY, radius, startAngle, endAngle, false);
+        ctx.stroke();
+      }
+    }
+    
+    // Converts milliseconds to HH:MM:SS string.
+    function timeToString(time) {
+      const hrs = Math.floor(time / 3600000);
+      const mins = Math.floor((time % 3600000) / 60000);
+      const secs = Math.floor((time % 60000) / 1000);
+      return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    // Converts an HH:MM:SS string to milliseconds.
+    function stringToTime(str) {
+      const parts = str.split(':');
+      if (parts.length !== 3) return 0;
+      const hrs = parseInt(parts[0], 10) || 0;
+      const mins = parseInt(parts[1], 10) || 0;
+      const secs = parseInt(parts[2], 10) || 0;
+      return (hrs * 3600000) + (mins * 60000) + (secs * 1000);
+    }
+    
+    // Allow editing when the timer is not running.
+    timerDisplay.addEventListener('click', function () {
+      if (timerRunning) return;
+      timeEdit.value = timerDisplay.textContent;
+      timerDisplay.style.display = 'none';
+      timeEdit.style.display = 'block';
+      timeEdit.focus();
+    });
+    
+    // Finalize editing when focus is lost or Enter is pressed.
+    function finishEditing() {
+      const newTime = stringToTime(timeEdit.value.trim());
+      initialTime = newTime;
+      currentTime = newTime;
+      timerDisplay.textContent = timeToString(currentTime);
+      timeEdit.style.display = 'none';
+      timerDisplay.style.display = 'block';
+      drawRing();
+    }
+    
+    timeEdit.addEventListener('blur', finishEditing);
+    timeEdit.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') finishEditing();
+    });
+    
+    // Start the timer:
+    // If initialTime > 0, operate in countdown mode (ring "opens" as time passes).
+    // Otherwise, operate as a stopwatch (full ring).
+    function startTimer() {
+      timerRunning = true;
+      toggleButton.textContent = 'Pause';
+      if (initialTime > 0) {
+        timerInterval = setInterval(() => {
+          currentTime -= 1000;
+          if (currentTime <= 0) {
+            currentTime = 0;
+            clearInterval(timerInterval);
+            timerRunning = false;
+            toggleButton.textContent = 'Start';
+            alarmSound.play();
+          }
+          timerDisplay.textContent = timeToString(currentTime);
+          drawRing();
+        }, 1000);
+      } else {
+        startTime = Date.now() - currentTime;
+        timerInterval = setInterval(() => {
+          currentTime = Date.now() - startTime;
+          timerDisplay.textContent = timeToString(currentTime);
+          drawRing();
+        }, 1000);
+      }
+    }
+    
+    // Pause the timer.
+    function pauseTimer() {
+      clearInterval(timerInterval);
+      timerRunning = false;
+      toggleButton.textContent = 'Start';
+    }
+    
+    // Toggle between starting and pausing.
+    toggleButton.addEventListener('click', function() {
+      if (timerRunning) {
+        pauseTimer();
+      } else {
+        startTimer();
+      }
+    });
+    
+    // Reset the timer to the last set value.
+    resetButton.addEventListener('click', function() {
+      clearInterval(timerInterval);
+      timerRunning = false;
+      currentTime = initialTime;
+      timerDisplay.textContent = timeToString(currentTime);
+      toggleButton.textContent = 'Start';
+      drawRing();
+    });
+    
+    // Initial ring draw.
+    drawRing();
+  </script>
+</body>
+</html>
