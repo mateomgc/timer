@@ -58,10 +58,10 @@
       display: none;
       z-index: 2;
     }
-    /* Button styling: font size 11px, bold text, fully rounded corners */
+    /* Button styling: now with font size 12px, bold text, fully rounded corners */
     .controls button {
       padding: 5px 10px;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: bold;
       margin: 0 5px;
       cursor: pointer;
@@ -117,7 +117,7 @@
   </div>
   
   <!-- Local audio element for calm sound -->
-  <audio id="alarmSound" src="tibet.mp3" preload="auto"></audio>
+  <audio id="alarmSound" src="alarm.mp3" preload="auto"></audio>
   
   <script>
     let timerRunning = false;
@@ -133,6 +133,11 @@
     const alarmSound = document.getElementById('alarmSound');
     const ringCanvas = document.getElementById('ringCanvas');
     const ctx = ringCanvas.getContext('2d');
+    
+    // Sugerencia 1: Función para adaptar el color del anillo según el modo
+    function getRingColor() {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? '#fdfdfd' : '#000000';
+    }
     
     // Draw the ring around the timer.
     // In countdown mode, the ring arc is proportional to (currentTime / initialTime),
@@ -155,7 +160,7 @@
       if (fraction > 0) {
         ctx.beginPath();
         ctx.lineWidth = 3;
-        ctx.strokeStyle = 'black';
+        ctx.strokeStyle = getRingColor();
         const startAngle = -Math.PI / 2; // 12 o'clock
         const endAngle = startAngle + fraction * 2 * Math.PI;
         ctx.arc(centerX, centerY, radius, startAngle, endAngle, false);
