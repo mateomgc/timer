@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Timer Widget with Ring (Arial, Adjusted Buttons)</title>
+  <title>Timer Widget with Smooth Ring (Arial)</title>
   <style>
     /* Use Arial font exclusively */
     body {
@@ -58,10 +58,11 @@
       display: none;
       z-index: 2;
     }
-    /* Button styling: adjusted for 11px font with fully rounded corners */
+    /* Button styling: font size 11px, bold text, fully rounded corners */
     .controls button {
       padding: 5px 10px;
       font-size: 11px;
+      font-weight: bold;
       margin: 0 5px;
       cursor: pointer;
       border: none;
@@ -119,11 +120,11 @@
   <audio id="alarmSound" src="alarm.mp3" preload="auto"></audio>
   
   <script>
-    let timerInterval = null;
+    let timerRunning = false;
     let initialTime = 0;   // in milliseconds (set via editing)
     let currentTime = 0;   // current timer value in milliseconds
     let startTime = 0;
-    let timerRunning = false;
+    let animationFrameId = null;
     
     const timerDisplay = document.getElementById('timer');
     const timeEdit = document.getElementById('timeEdit');
@@ -135,7 +136,7 @@
     
     // Draw the ring around the timer.
     // In countdown mode, the ring arc is proportional to (currentTime / initialTime),
-    // starting at the top (12 o'clock). In stopwatch mode, the ring is complete.
+    // starting at the top (12 o'clock). In stopwatch mode (initialTime == 0), the ring is full.
     function drawRing() {
       const width = ringCanvas.width;
       const height = ringCanvas.height;
@@ -151,12 +152,11 @@
         if (fraction < 0) fraction = 0;
       }
       
-      // Draw the arc only if there's any fraction left.
       if (fraction > 0) {
         ctx.beginPath();
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'black';
-        const startAngle = -Math.PI / 2; // start at 12 o'clock
+        const startAngle = -Math.PI / 2; // 12 o'clock
         const endAngle = startAngle + fraction * 2 * Math.PI;
         ctx.arc(centerX, centerY, radius, startAngle, endAngle, false);
         ctx.stroke();
@@ -206,40 +206,51 @@
       if (e.key === 'Enter') finishEditing();
     });
     
-    // Start the timer:
-    // If initialTime > 0, operate in countdown mode (ring "opens" as time passes).
-    // Otherwise, operate as a stopwatch (full ring).
-    function startTimer() {
-      timerRunning = true;
-      toggleButton.textContent = 'Pause';
+    // Update loop using requestAnimationFrame for smooth animation.
+    function update() {
+      if (!timerRunning) return;
+      
+      const now = Date.now();
       if (initialTime > 0) {
-        timerInterval = setInterval(() => {
-          currentTime -= 1000;
-          if (currentTime <= 0) {
-            currentTime = 0;
-            clearInterval(timerInterval);
-            timerRunning = false;
-            toggleButton.textContent = 'Start';
-            alarmSound.play();
-          }
+        // Countdown mode
+        currentTime = initialTime - (now - startTime);
+        if (currentTime <= 0) {
+          currentTime = 0;
           timerDisplay.textContent = timeToString(currentTime);
           drawRing();
-        }, 1000);
+          timerRunning = false;
+          toggleButton.textContent = 'Start';
+          alarmSound.play();
+          return;
+        }
       } else {
-        startTime = Date.now() - currentTime;
-        timerInterval = setInterval(() => {
-          currentTime = Date.now() - startTime;
-          timerDisplay.textContent = timeToString(currentTime);
-          drawRing();
-        }, 1000);
+        // Stopwatch mode
+        currentTime = now - startTime;
+      }
+      
+      timerDisplay.textContent = timeToString(currentTime);
+      drawRing();
+      
+      animationFrameId = requestAnimationFrame(update);
+    }
+    
+    // Start the timer.
+    function startTimer() {
+      if (!timerRunning) {
+        timerRunning = true;
+        toggleButton.textContent = 'Pause';
+        startTime = Date.now() - (initialTime > 0 ? (initialTime - currentTime) : currentTime);
+        animationFrameId = requestAnimationFrame(update);
       }
     }
     
     // Pause the timer.
     function pauseTimer() {
-      clearInterval(timerInterval);
-      timerRunning = false;
-      toggleButton.textContent = 'Start';
+      if (timerRunning) {
+        cancelAnimationFrame(animationFrameId);
+        timerRunning = false;
+        toggleButton.textContent = 'Start';
+      }
     }
     
     // Toggle between starting and pausing.
@@ -253,7 +264,7 @@
     
     // Reset the timer to the last set value.
     resetButton.addEventListener('click', function() {
-      clearInterval(timerInterval);
+      cancelAnimationFrame(animationFrameId);
       timerRunning = false;
       currentTime = initialTime;
       timerDisplay.textContent = timeToString(currentTime);
